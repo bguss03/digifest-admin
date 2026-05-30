@@ -7,11 +7,4 @@ if (!import.meta.env.VITE_SUPABASE_URL || !import.meta.env.VITE_SUPABASE_ANON_KE
   console.warn('Supabase URL or Anon Key is missing. Using placeholder values.');
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-  auth: {
-    persistSession: true,
-    autoRefreshToken: true,
-    detectSessionInUrl: true,
-    storage: window.localStorage // Explicitly use localStorage for better persistence
-  }
-});
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);

@@ -25,23 +25,13 @@ const Login = () => {
       return;
     }
 
+    // After successful sign in, the AuthContext will detect the change 
+    // and update isAdmin. We just navigate.
     if (data.user) {
-      // Check if user is admin
-      const { data: profile, error: profileError } = await supabase
-        .from('profiles')
-        .select('is_admin')
-        .eq('id', data.user.id)
-        .single();
-
-      if (profileError || !profile?.is_admin) {
-        await supabase.auth.signOut();
-        setError('Akses ditolak. Anda bukan admin.');
-        setLoading(false);
-        return;
-      }
+      navigate('/admin/dashboard');
+    } else {
+      setLoading(false);
     }
-
-    navigate('/admin/dashboard');
   };
 
   return (
