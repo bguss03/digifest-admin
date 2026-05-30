@@ -48,7 +48,13 @@ const SubmissionList = () => {
                          (item.asal_sekolah?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
                          (item.nama_ketua?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
                          (item.judul_inovasi?.toLowerCase() || '').includes(searchTerm.toLowerCase());
-    const matchesFilter = filterCategory === 'All' || item.kategori === filterCategory;
+    
+    // Robust category matching
+    const itemCategory = item.kategori?.toLowerCase().trim() || '';
+    const selectedCategory = filterCategory.toLowerCase().trim();
+    
+    const matchesFilter = filterCategory === 'All' || itemCategory === selectedCategory;
+
     return matchesSearch && matchesFilter;
   });
 
@@ -78,9 +84,9 @@ const SubmissionList = () => {
               onChange={(e) => setFilterCategory(e.target.value)}
             >
               <option value="All">Semua Kategori</option>
-              <option value="Web Design">Web Design</option>
-              <option value="UI/UX">UI/UX</option>
-              <option value="Competitive Programming">Competitive Programming</option>
+              <option value="UI UX">UI UX</option>
+              <option value="Innovation System Challenge">Innovation System Challenge</option>
+              <option value="IT Competition">IT Competition</option>
             </select>
           </div>
         </div>
@@ -220,6 +226,17 @@ const SubmissionList = () => {
               </div>
             </div>
             <div className="p-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/20 text-center text-xs text-gray-500">
+              Dikumpulkan pada: {new Date(selectedSub.created_at).toLocaleString('id-ID')}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default SubmissionList;
+-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/20 text-center text-xs text-gray-500">
               Dikumpulkan pada: {new Date(selectedSub.created_at).toLocaleString('id-ID')}
             </div>
           </div>

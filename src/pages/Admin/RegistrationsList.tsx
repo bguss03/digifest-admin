@@ -62,6 +62,11 @@ const RegistrationsList = () => {
                          (item.instansi?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
                          (item.nama_ketua?.toLowerCase() || '').includes(searchTerm.toLowerCase());
     const matchesFilter = filterCategory === 'All' || item.kategori === filterCategory;
+    
+    if (searchTerm || filterCategory !== 'All') {
+      console.log(`Filtering: search="${searchTerm}", category="${filterCategory}" | Item: tim="${item.nama_tim}", cat="${item.kategori}" | matchesSearch=${matchesSearch}, matchesFilter=${matchesFilter}`);
+    }
+    
     return matchesSearch && matchesFilter;
   });
 
@@ -99,9 +104,9 @@ const RegistrationsList = () => {
               onChange={(e) => setFilterCategory(e.target.value)}
             >
               <option value="All">Semua Kategori</option>
-              <option value="Web Design">Web Design</option>
-              <option value="UI/UX">UI/UX</option>
-              <option value="Competitive Programming">Competitive Programming</option>
+              <option value="UI UX">UI UX</option>
+              <option value="Innovation System Challenge">Innovation System Challenge</option>
+              <option value="IT Competition">IT Competition</option>
             </select>
           </div>
         </div>
