@@ -28,6 +28,22 @@ const SubmissionList = () => {
 
   useEffect(() => {
     fetchSubmissions();
+
+    // Subscribe to real-time updates
+    const channel = supabase
+      .channel('public:submissions_karya')
+      .on('postgres_changes', { 
+        event: '*', 
+        schema: 'public', 
+        table: 'submissions_karya' 
+      }, () => {
+        fetchSubmissions();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const fetchSubmissions = async () => {

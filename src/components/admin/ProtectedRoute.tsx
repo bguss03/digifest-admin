@@ -8,29 +8,54 @@ const ProtectedRoute = () => {
   const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
+    let isMounted = true;
+
     const checkUser = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      setSession(session);
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        if (!isMounted) return;
+        setSession(session);
 
-      if (session) {
-        const { data, error } = await supabase
-          .from('profiles')
-          .select('is_admin')
-          .eq('id', session.user.id)
-          .single();
+        if (session) {
+          const { data, error } = await supabase
+            .from('profiles')
+            .select('is_admin')
+            .eq('id', session.user.id)
+            .single();
 
-        if (!error && data?.is_admin) {
-          setIsAdmin(true);
+          if (isMounted) {
+            if (!error && data?.is_admin) {
+              setIsAdmin(true);
+            } else {
+              setIsAdmin(false);
+            }
+          }
+        } else {
+          if (isMounted) setIsAdmin(false);
         }
+      } catch (err) {
+        console.error('Session check error:', err);
+      } finally {
+        if (isMounted) setLoading(false);
       }
-      setLoading(false);
     };
 
     checkUser();
 
+    // Set a safety timeout to prevent infinite loading
+    const timer = setTimeout(() => {
+      if (isMounted && loading) {
+        console.warn('Session check timed out');
+        setLoading(false);
+      }
+    }, 5000);
+
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (!isMounted) return;
+      
       setSession(session);
       if (session) {
         const { data } = await supabase
@@ -38,13 +63,17 @@ const ProtectedRoute = () => {
           .select('is_admin')
           .eq('id', session.user.id)
           .single();
-        setIsAdmin(!!data?.is_admin);
+        if (isMounted) setIsAdmin(!!data?.is_admin);
       } else {
-        setIsAdmin(false);
+        if (isMounted) setIsAdmin(false);
       }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      isMounted = false;
+      clearTimeout(timer);
+      subscription.unsubscribe();
+    };
   }, []);
 
   if (loading) {

@@ -28,6 +28,22 @@ const RegistrationsList = () => {
 
   useEffect(() => {
     fetchRegistrations();
+
+    // Subscribe to real-time updates
+    const channel = supabase
+      .channel('public:registrations')
+      .on('postgres_changes', { 
+        event: '*', 
+        schema: 'public', 
+        table: 'registrations' 
+      }, () => {
+        fetchRegistrations();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const fetchRegistrations = async () => {
