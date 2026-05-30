@@ -27,6 +27,7 @@ const ProtectedRoute = () => {
             console.log('Admin status result:', data?.is_admin);
             setIsAdmin(!!data?.is_admin);
           }
+          setLoading(false); // Ensure loading ends here
         }
       } catch (err) {
         console.error('Unexpected error in profile check:', err);
@@ -37,6 +38,9 @@ const ProtectedRoute = () => {
     const initialize = async () => {
       console.log('Initializing session check...');
       try {
+        // Small delay to ensure mobile browsers have loaded storage
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
         // 1. Get current session
         const { data: { session: currentSession }, error: sessionError } = await supabase.auth.getSession();
         
@@ -44,11 +48,21 @@ const ProtectedRoute = () => {
 
         if (isMounted) {
           console.log('Session found:', !!currentSession);
-          setSession(currentSession);
-          if (currentSession?.user) {
+          if (currentSession) {
+            setSession(currentSession);
             await checkAdminStatus(currentSession.user.id);
           } else {
-            setIsAdmin(false);
+            // If session is null, try one more time after a short delay (mobile fix)
+            const { data: { session: retrySession } } = await supabase.auth.getSession();
+            if (isMounted) {
+              setSession(retrySession);
+              if (retrySession?.user) {
+                await checkAdminStatus(retrySession.user.id);
+              } else {
+                setIsAdmin(false);
+                setLoading(false);
+              }
+            }
           }
         }
       } catch (err) {
@@ -56,10 +70,14 @@ const ProtectedRoute = () => {
         if (isMounted) {
           setSession(null);
           setIsAdmin(false);
+          setLoading(false);
         }
       } finally {
-        console.log('Initialization finished, setting loading to false');
-        if (isMounted) setLoading(false);
+        if (isMounted) {
+          console.log('Initialization finished');
+          // We don't necessarily set loading false here if checkAdminStatus is still running
+          // loading is handled inside checkAdminStatus or onAuthStateChange
+        }
       }
     };
 
