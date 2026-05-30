@@ -236,14 +236,3 @@ const SubmissionList = () => {
 };
 
 export default SubmissionList;
--t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/20 text-center text-xs text-gray-500">
-              Dikumpulkan pada: {new Date(selectedSub.created_at).toLocaleString('id-ID')}
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
-
-export default SubmissionList;
