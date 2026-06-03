@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/api/supabase-client';
+import { useAuth } from '../../lib/api/auth-context';
 
 const Login = () => {
   const [email, setEmail] = useState('');
@@ -8,80 +9,66 @@ const Login = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
+  const { session, isAdmin, loading: authLoading } = useAuth();
+
+  // If already authenticated as admin, redirect to dashboard
+  useEffect(() => {
+    if (!authLoading && session && isAdmin) {
+      console.log('[Login] Already authenticated as admin, redirecting...');
+      navigate('/admin/dashboard', { replace: true });
+    }
+  }, [authLoading, session, isAdmin, navigate]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
 
-    console.log('[Login] Starting login sequence...');
-
-    // 15-second timeout for the entire process
-    const loginTimeout = setTimeout(() => {
-      if (loading) {
-        setLoading(false);
-        setError('Login timeout. Periksa koneksi internet Anda dan coba lagi.');
-        console.error('[Login] Sequence timed out after 15s');
-      }
-    }, 15000);
+    console.log('[Login] Starting login...');
 
     try {
-      // 1. Sign in with Supabase Auth
-      console.log('[Login] DEBUG: Calling auth.signInWithPassword with email:', email);
-      const { data, error: authError } = await supabase.auth.signInWithPassword({
+      // Just sign in — AuthProvider will handle admin check via onAuthStateChange
+      const { error: authError } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
-      console.log('[Login] DEBUG: auth.signInWithPassword returned. Error:', authError?.message || 'none');
 
       if (authError) {
-        clearTimeout(loginTimeout);
+        console.error('[Login] Auth error:', authError.message);
         setError(authError.message);
         setLoading(false);
         return;
       }
 
-      if (data.user) {
-        console.log('[Login] DEBUG: Auth successful. User ID:', data.user.id);
-        console.log('[Login] DEBUG: Checking profiles table for is_admin...');
-        
-        // 2. Immediate admin check
-        const { data: profile, error: profileError } = await supabase
-          .from('profiles')
-          .select('is_admin')
-          .eq('id', data.user.id)
-          .single();
-        
-        console.log('[Login] DEBUG: profiles query returned. Error:', profileError?.message || 'none', 'Data:', profile);
-
-        clearTimeout(loginTimeout);
-
-        if (profileError) {
-          console.error('[Login] Profile check error:', profileError);
-          await supabase.auth.signOut();
-          setError('Gagal memverifikasi status admin. Hubungi pengembang.');
-          setLoading(false);
-          return;
-        }
-
-        if (!profile?.is_admin) {
-          console.log('[Login] User is not an admin, signing out...');
-          await supabase.auth.signOut();
-          setError('Akses ditolak. Anda bukan admin.');
-          setLoading(false);
-          return;
-        }
-
-        console.log('[Login] Admin verified, navigating to dashboard...');
-        navigate('/admin/dashboard');
-      }
+      console.log('[Login] Sign in successful, waiting for AuthProvider to verify admin...');
+      // Don't navigate here — the useEffect above will handle navigation
+      // once AuthProvider finishes the admin check and sets isAdmin=true
+      
     } catch (err) {
-      clearTimeout(loginTimeout);
-      console.error('[Login] Unexpected error during login:', err);
+      console.error('[Login] Unexpected error:', err);
       setError('Terjadi kesalahan jaringan atau sistem. Silakan coba lagi.');
       setLoading(false);
     }
   };
+
+  // Watch for auth context changes to handle post-login results
+  useEffect(() => {
+    if (!loading) return; // Only care when we initiated a login
+
+    // Auth context finished loading after we triggered login
+    if (!authLoading && session) {
+      if (isAdmin) {
+        console.log('[Login] Admin verified by AuthProvider, navigating...');
+        navigate('/admin/dashboard', { replace: true });
+      } else if (isAdmin === false) {
+        // AuthProvider confirmed NOT admin
+        console.log('[Login] Not admin, signing out...');
+        supabase.auth.signOut();
+        setError('Akses ditolak. Anda bukan admin.');
+        setLoading(false);
+      }
+    }
+  }, [authLoading, session, isAdmin, loading, navigate]);
 
   return (
     <div className="flex items-center justify-center min-h-screen bg-gray-100 dark:bg-gray-950 px-4">

@@ -14,11 +14,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [session, setSession] = useState<any>(null);
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(true);
-  
-  // Use refs to avoid stale closures and redundant checks
-  const loadingRef = useRef(true);
+
+  // Refs to prevent race conditions
   const lastCheckedUserId = useRef<string | null>(null);
-  const adminCheckInFlight = useRef(false);
+  const isMountedRef = useRef(true);
 
   const checkAdmin = useCallback(async (userId: string): Promise<boolean> => {
     try {
@@ -28,7 +27,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .select('is_admin')
         .eq('id', userId)
         .single();
-      
+
+      console.log('[AuthContext] Admin check result:', { data, error: error?.message });
+
       if (error) {
         console.error('[AuthContext] Admin check error:', error);
         return false;
@@ -40,89 +41,107 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
-  // Helper to finish loading
-  const finishLoading = useCallback((adminStatus: boolean, userSession: any) => {
-    setSession(userSession);
-    setIsAdmin(adminStatus);
-    setLoading(false);
-    loadingRef.current = false;
-  }, []);
-
   useEffect(() => {
-    let isMounted = true;
+    isMountedRef.current = true;
 
-    // Failsafe timeout using ref (not stale state)
-    const failsafeTimeout = setTimeout(() => {
-      if (isMounted && loadingRef.current) {
-        console.warn('[AuthContext] Failsafe: forcing loading=false after 10s');
-        finishLoading(false, null);
+    // Step 1: Get initial session
+    const initializeAuth = async () => {
+      try {
+        console.log('[AuthContext] Initializing...');
+        const { data: { session: initialSession } } = await supabase.auth.getSession();
+
+        if (!isMountedRef.current) return;
+
+        if (initialSession?.user) {
+          console.log('[AuthContext] Found existing session for:', initialSession.user.id.substring(0, 8));
+          setSession(initialSession);
+
+          const adminStatus = await checkAdmin(initialSession.user.id);
+          if (!isMountedRef.current) return;
+
+          lastCheckedUserId.current = initialSession.user.id;
+          setIsAdmin(adminStatus);
+          console.log('[AuthContext] Init complete. isAdmin:', adminStatus);
+        } else {
+          console.log('[AuthContext] No existing session');
+          setSession(null);
+          setIsAdmin(false);
+        }
+      } catch (err) {
+        console.error('[AuthContext] Init error:', err);
+        if (isMountedRef.current) {
+          setSession(null);
+          setIsAdmin(false);
+        }
+      } finally {
+        if (isMountedRef.current) {
+          setLoading(false);
+          console.log('[AuthContext] Loading set to false');
+        }
       }
-    }, 10000);
+    };
 
-    // Single source of truth: onAuthStateChange handles everything
+    initializeAuth();
+
+    // Step 2: Listen for auth changes AFTER initial load
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, currentSession) => {
-      console.log('[AuthContext] Event:', event, '| User:', currentSession?.user?.id?.substring(0, 8) || 'none');
-      if (!isMounted) return;
+      console.log('[AuthContext] Auth event:', event, '| User:', currentSession?.user?.id?.substring(0, 8) || 'none');
 
-      if (!currentSession) {
-        // No session — user is logged out
-        console.log('[AuthContext] No session, clearing state');
+      if (!isMountedRef.current) return;
+
+      // Skip INITIAL_SESSION — already handled by getSession above
+      if (event === 'INITIAL_SESSION') {
+        return;
+      }
+
+      if (event === 'SIGNED_OUT' || !currentSession) {
         lastCheckedUserId.current = null;
-        adminCheckInFlight.current = false;
-        finishLoading(false, null);
+        setSession(null);
+        setIsAdmin(false);
+        setLoading(false);
         return;
       }
 
       const userId = currentSession.user.id;
 
-      // If we already verified this user and it's just a token refresh, skip re-check
-      if (lastCheckedUserId.current === userId && !loadingRef.current) {
-        console.log('[AuthContext] Same user, skipping admin re-check. Event:', event);
-        // Just update the session (it has a new token), keep isAdmin as-is
+      // Token refresh for same user — just update session, keep admin status
+      if (event === 'TOKEN_REFRESHED' && lastCheckedUserId.current === userId) {
+        console.log('[AuthContext] Token refreshed, keeping admin status');
         setSession(currentSession);
         return;
       }
 
-      // Avoid duplicate in-flight admin checks for the same user
-      if (adminCheckInFlight.current) {
-        console.log('[AuthContext] Admin check already in flight, skipping');
+      // SIGNED_IN — need to verify admin
+      if (event === 'SIGNED_IN') {
+        console.log('[AuthContext] SIGNED_IN, checking admin...');
+        setSession(currentSession);
+        setLoading(true); // Show loading spinner while checking
+
+        const adminStatus = await checkAdmin(userId);
+        if (!isMountedRef.current) return;
+
+        lastCheckedUserId.current = userId;
+        setIsAdmin(adminStatus);
+        setLoading(false);
+        console.log('[AuthContext] SIGNED_IN complete. isAdmin:', adminStatus);
         return;
       }
 
-      // We need to check admin status
-      adminCheckInFlight.current = true;
-      // Set session immediately so the UI knows we have a user
+      // Other events — just update session
       setSession(currentSession);
-
-      try {
-        const status = await checkAdmin(userId);
-        if (isMounted) {
-          lastCheckedUserId.current = userId;
-          finishLoading(status, currentSession);
-        }
-      } catch (err) {
-        console.error('[AuthContext] Failed to check admin:', err);
-        if (isMounted) {
-          finishLoading(false, currentSession);
-        }
-      } finally {
-        adminCheckInFlight.current = false;
-      }
     });
 
     return () => {
-      isMounted = false;
-      clearTimeout(failsafeTimeout);
+      isMountedRef.current = false;
       subscription.unsubscribe();
     };
-  }, [checkAdmin, finishLoading]);
+  }, [checkAdmin]);
 
   const signOut = async () => {
     setLoading(true);
-    loadingRef.current = true;
     lastCheckedUserId.current = null;
     await supabase.auth.signOut();
-    // onAuthStateChange will handle clearing state
+    // onAuthStateChange SIGNED_OUT will handle the rest
   };
 
   return (
