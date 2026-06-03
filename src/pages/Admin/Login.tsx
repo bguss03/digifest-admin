@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/api/supabase-client';
 import { useAuth } from '../../lib/api/auth-context';
@@ -8,14 +8,43 @@ const Login = () => {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [debugLog, setDebugLog] = useState<string[]>([]);
   const navigate = useNavigate();
   const { session, isAdmin, loading: authLoading } = useAuth();
+  const hasTriedLogin = useRef(false);
+
+  const addLog = (msg: string) => {
+    const time = new Date().toLocaleTimeString();
+    console.log(`[Login] ${msg}`);
+    setDebugLog(prev => [...prev.slice(-10), `${time}: ${msg}`]);
+  };
 
   // If already authenticated as admin, redirect to dashboard
   useEffect(() => {
     if (!authLoading && session && isAdmin) {
-      console.log('[Login] Already authenticated as admin, redirecting...');
+      addLog('Already admin, redirecting to dashboard');
       navigate('/admin/dashboard', { replace: true });
+    }
+  }, [authLoading, session, isAdmin, navigate]);
+
+  // Watch auth context after login attempt
+  useEffect(() => {
+    if (!hasTriedLogin.current) return;
+    
+    addLog(`Auth state: authLoading=${authLoading}, session=${!!session}, isAdmin=${isAdmin}`);
+
+    if (!authLoading && session) {
+      if (isAdmin === true) {
+        addLog('Admin confirmed! Navigating to dashboard...');
+        hasTriedLogin.current = false;
+        navigate('/admin/dashboard', { replace: true });
+      } else if (isAdmin === false) {
+        addLog('Not admin, signing out...');
+        hasTriedLogin.current = false;
+        supabase.auth.signOut();
+        setError('Akses ditolak. Anda bukan admin.');
+        setLoading(false);
+      }
     }
   }, [authLoading, session, isAdmin, navigate]);
 
@@ -23,52 +52,37 @@ const Login = () => {
     e.preventDefault();
     setLoading(true);
     setError(null);
+    setDebugLog([]);
+    hasTriedLogin.current = true;
 
-    console.log('[Login] Starting login...');
+    addLog(`Login attempt: ${email}`);
 
     try {
-      // Just sign in — AuthProvider will handle admin check via onAuthStateChange
-      const { error: authError } = await supabase.auth.signInWithPassword({
+      addLog('Calling signInWithPassword...');
+      const { data, error: authError } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
 
       if (authError) {
-        console.error('[Login] Auth error:', authError.message);
+        addLog(`Auth error: ${authError.message}`);
         setError(authError.message);
         setLoading(false);
+        hasTriedLogin.current = false;
         return;
       }
 
-      console.log('[Login] Sign in successful, waiting for AuthProvider to verify admin...');
-      // Don't navigate here — the useEffect above will handle navigation
-      // once AuthProvider finishes the admin check and sets isAdmin=true
+      addLog(`Sign in OK! User: ${data.user?.id?.substring(0, 8)}. Waiting for AuthProvider...`);
+      // AuthProvider's onAuthStateChange will handle admin check
+      // useEffect above will detect isAdmin change and navigate
       
-    } catch (err) {
-      console.error('[Login] Unexpected error:', err);
+    } catch (err: any) {
+      addLog(`Exception: ${err?.message || err}`);
       setError('Terjadi kesalahan jaringan atau sistem. Silakan coba lagi.');
       setLoading(false);
+      hasTriedLogin.current = false;
     }
   };
-
-  // Watch for auth context changes to handle post-login results
-  useEffect(() => {
-    if (!loading) return; // Only care when we initiated a login
-
-    // Auth context finished loading after we triggered login
-    if (!authLoading && session) {
-      if (isAdmin) {
-        console.log('[Login] Admin verified by AuthProvider, navigating...');
-        navigate('/admin/dashboard', { replace: true });
-      } else if (isAdmin === false) {
-        // AuthProvider confirmed NOT admin
-        console.log('[Login] Not admin, signing out...');
-        supabase.auth.signOut();
-        setError('Akses ditolak. Anda bukan admin.');
-        setLoading(false);
-      }
-    }
-  }, [authLoading, session, isAdmin, loading, navigate]);
 
   return (
     <div className="flex items-center justify-center min-h-screen bg-gray-100 dark:bg-gray-950 px-4">
@@ -127,6 +141,21 @@ const Login = () => {
           </button>
         </form>
         
+        {/* Debug panel - remove after fixing */}
+        {debugLog.length > 0 && (
+          <div className="p-3 bg-gray-800 rounded-xl text-[10px] font-mono text-green-400 max-h-40 overflow-y-auto space-y-0.5">
+            <p className="text-gray-500 mb-1">Debug Log:</p>
+            {debugLog.map((log, i) => (
+              <p key={i}>{log}</p>
+            ))}
+          </div>
+        )}
+
+        {/* Auth state indicator */}
+        <div className="text-[10px] text-center text-gray-400 space-y-0.5">
+          <p>Auth: {authLoading ? '⏳ loading' : '✅ ready'} | Session: {session ? '✅' : '❌'} | Admin: {isAdmin === null ? '⏳' : isAdmin ? '✅' : '❌'}</p>
+        </div>
+
         <div className="pt-4 border-t border-gray-100 dark:border-gray-800">
           <p className="text-center text-[10px] text-gray-400 dark:text-gray-500 font-medium">
             System protected by Supabase Auth & RLS Policy
