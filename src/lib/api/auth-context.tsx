@@ -17,15 +17,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const checkAdmin = async (userId: string) => {
     try {
+      console.log('[AuthContext] Checking admin for:', userId);
       const { data, error } = await supabase
         .from('profiles')
         .select('is_admin')
         .eq('id', userId)
         .single();
       
-      if (error) return false;
+      if (error) {
+        console.error('[AuthContext] Admin check error:', error);
+        return false;
+      }
       return !!data?.is_admin;
-    } catch {
+    } catch (err) {
+      console.error('[AuthContext] Admin check exception:', err);
       return false;
     }
   };
@@ -33,24 +38,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     let isMounted = true;
 
-    // Initial session recovery
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (isMounted) {
-        setSession(session);
-        if (session) {
-          checkAdmin(session.user.id).then(status => {
-            if (isMounted) {
-              setIsAdmin(status);
-              setLoading(false);
-            }
-          });
+    // 1. Initial Load: Check if we already have a session
+    const initializeAuth = async () => {
+      try {
+        const { data: { session: initSession } } = await supabase.auth.getSession();
+        
+        if (!isMounted) return;
+
+        if (initSession) {
+          console.log('[AuthContext] Initial session recovered');
+          setSession(initSession);
+          const status = await checkAdmin(initSession.user.id);
+          if (isMounted) {
+            setIsAdmin(status);
+            setLoading(false);
+          }
         } else {
+          console.log('[AuthContext] No initial session');
           setLoading(false);
         }
+      } catch (err) {
+        console.error('[AuthContext] Initialization failed:', err);
+        if (isMounted) setLoading(false);
       }
-    });
+    };
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, currentSession) => {
+    initializeAuth();
+
+    // 2. Listen for Auth Changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, currentSession) => {
+      console.log('[AuthContext] Event:', event);
       if (!isMounted) return;
 
       setSession(currentSession);
@@ -76,9 +93,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const signOut = async () => {
+    setLoading(true);
     await supabase.auth.signOut();
     setSession(null);
     setIsAdmin(false);
+    setLoading(false);
   };
 
   return (

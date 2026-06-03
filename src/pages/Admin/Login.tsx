@@ -14,22 +14,53 @@ const Login = () => {
     setLoading(true);
     setError(null);
 
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    console.log('[Login] Attempting sign in...');
 
-    if (error) {
-      setError(error.message);
-      setLoading(false);
-      return;
-    }
+    try {
+      // 1. Sign in
+      const { data, error: authError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
 
-    // After successful sign in, the AuthContext will detect the change 
-    // and update isAdmin. We just navigate.
-    if (data.user) {
-      navigate('/admin/dashboard');
-    } else {
+      if (authError) {
+        setError(authError.message);
+        setLoading(false);
+        return;
+      }
+
+      if (data.user) {
+        console.log('[Login] Sign in successful, checking admin status...');
+        
+        // 2. Immediate admin check for feedback
+        const { data: profile, error: profileError } = await supabase
+          .from('profiles')
+          .select('is_admin')
+          .eq('id', data.user.id)
+          .single();
+
+        if (profileError) {
+          console.error('[Login] Profile check error:', profileError);
+          await supabase.auth.signOut();
+          setError('Gagal memverifikasi profil admin. Periksa koneksi internet Anda.');
+          setLoading(false);
+          return;
+        }
+
+        if (!profile?.is_admin) {
+          console.log('[Login] User is not an admin');
+          await supabase.auth.signOut();
+          setError('Akses ditolak. Akun Anda tidak terdaftar sebagai admin.');
+          setLoading(false);
+          return;
+        }
+
+        console.log('[Login] Admin verified, navigating...');
+        navigate('/admin/dashboard');
+      }
+    } catch (err) {
+      console.error('[Login] Unexpected error:', err);
+      setError('Terjadi kesalahan yang tidak terduga. Silakan coba lagi.');
       setLoading(false);
     }
   };
@@ -57,6 +88,7 @@ const Login = () => {
               className="w-full px-4 py-2 mt-1 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-indigo-500 focus:border-indigo-500 bg-white dark:bg-gray-700 dark:text-white"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              placeholder="admin@example.com"
             />
           </div>
 
@@ -68,6 +100,7 @@ const Login = () => {
               className="w-full px-4 py-2 mt-1 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-indigo-500 focus:border-indigo-500 bg-white dark:bg-gray-700 dark:text-white"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••••"
             />
           </div>
 
@@ -79,6 +112,10 @@ const Login = () => {
             {loading ? 'Logging in...' : 'Login'}
           </button>
         </form>
+        
+        <p className="text-center text-xs text-gray-500 mt-4">
+          Pastikan koneksi internet stabil saat melakukan login.
+        </p>
       </div>
     </div>
   );
