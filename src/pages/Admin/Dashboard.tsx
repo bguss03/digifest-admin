@@ -20,21 +20,36 @@ const Dashboard = () => {
   }, []);
 
   const fetchStats = async () => {
-    // Count registrations
-    const { count: regCount } = await supabase
-      .from('registrations')
-      .select('*', { count: 'exact', head: true });
+    console.log('[Dashboard] Fetching stats...');
+    try {
+      // Count registrations
+      const { count: regCount, error: regError } = await supabase
+        .from('registrations')
+        .select('*', { count: 'exact', head: true });
 
-    // Count submissions
-    const { count: subCount } = await supabase
-      .from('submissions_karya')
-      .select('*', { count: 'exact', head: true });
+      if (regError) {
+        console.error('[Dashboard] Error fetching registrations:', regError);
+      }
 
-    setStats([
-      { title: 'Total Pendaftar', value: (regCount || 0).toString(), icon: Users, color: 'bg-blue-500' },
-      { title: 'Total Karya Masuk', value: (subCount || 0).toString(), icon: FileText, color: 'bg-green-500' },
-      { title: 'Kategori Lomba', value: '3', icon: Layers, color: 'bg-purple-500' },
-    ]);
+      // Count submissions
+      const { count: subCount, error: subError } = await supabase
+        .from('submissions_karya')
+        .select('*', { count: 'exact', head: true });
+
+      if (subError) {
+        console.error('[Dashboard] Error fetching submissions:', subError);
+      }
+
+      console.log('[Dashboard] Stats fetched:', { registrations: regCount, submissions: subCount });
+
+      setStats([
+        { title: 'Total Pendaftar', value: (regCount || 0).toString(), icon: Users, color: 'bg-blue-500' },
+        { title: 'Total Karya Masuk', value: (subCount || 0).toString(), icon: FileText, color: 'bg-green-500' },
+        { title: 'Kategori Lomba', value: '3', icon: Layers, color: 'bg-purple-500' },
+      ]);
+    } catch (err) {
+      console.error('[Dashboard] Unexpected error in fetchStats:', err);
+    }
   };
 
   return (

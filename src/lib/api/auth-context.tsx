@@ -3,7 +3,7 @@ import { supabase } from './supabase-client';
 
 interface AuthContextType {
   session: any;
-  isAdmin: boolean;
+  isAdmin: boolean | null;
   loading: boolean;
   signOut: () => Promise<void>;
 }
@@ -12,7 +12,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [session, setSession] = useState<any>(null);
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(true);
 
   const checkAdmin = async (userId: string) => {
@@ -55,11 +55,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
         } else {
           console.log('[AuthContext] No initial session');
+          setIsAdmin(false);
           setLoading(false);
         }
       } catch (err) {
         console.error('[AuthContext] Initialization failed:', err);
-        if (isMounted) setLoading(false);
+        if (isMounted) {
+          setIsAdmin(false);
+          setLoading(false);
+        }
       }
     };
 
