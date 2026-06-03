@@ -15,26 +15,87 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Refs to prevent race conditions
   const lastCheckedUserId = useRef<string | null>(null);
   const isMountedRef = useRef(true);
 
-  const checkAdmin = useCallback(async (userId: string): Promise<boolean> => {
+  // Check admin status using direct REST call with the user's access token
+  // This avoids issues where the Supabase JS client may not have updated its token yet
+  const checkAdmin = useCallback(async (userId: string, accessToken: string): Promise<boolean> => {
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    const supabaseKey = import.meta.env.VITE_SUPABASE_API_KEY;
+
     try {
-      console.log('[AuthContext] Checking admin for:', userId);
-      const { data, error } = await supabase
+      console.log('[AuthContext] Checking admin for:', userId.substring(0, 8));
+
+      // Method 1: Direct REST API call with user's access token (bypasses JS client token race)
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+      try {
+        const response = await fetch(
+          `${supabaseUrl}/rest/v1/profiles?select=is_admin&id=eq.${userId}`,
+          {
+            headers: {
+              'apikey': supabaseKey,
+              'Authorization': `Bearer ${accessToken}`,
+              'Accept': 'application/json',
+            },
+            signal: controller.signal,
+          }
+        );
+        clearTimeout(timeoutId);
+
+        if (response.ok) {
+          const data = await response.json();
+          console.log('[AuthContext] REST query result:', data);
+          if (Array.isArray(data) && data.length > 0) {
+            return !!data[0].is_admin;
+          }
+          // Empty array = RLS blocking or no row found
+          console.warn('[AuthContext] No profile row found, trying Supabase client...');
+        } else {
+          console.error('[AuthContext] REST query failed:', response.status, response.statusText);
+        }
+      } catch (fetchErr: any) {
+        clearTimeout(timeoutId);
+        if (fetchErr.name === 'AbortError') {
+          console.warn('[AuthContext] REST query timed out after 5s');
+        } else {
+          console.error('[AuthContext] REST query error:', fetchErr.message);
+        }
+      }
+
+      // Method 2: Fallback to Supabase JS client
+      console.log('[AuthContext] Trying Supabase JS client...');
+      const queryPromise = supabase
         .from('profiles')
         .select('is_admin')
         .eq('id', userId)
         .single();
 
-      console.log('[AuthContext] Admin check result:', { data, error: error?.message });
+      const result = await Promise.race([
+        queryPromise,
+        new Promise<{ data: null; error: { message: string } }>((resolve) =>
+          setTimeout(() => resolve({ data: null, error: { message: 'JS client query timed out' } }), 5000)
+        ),
+      ]);
 
-      if (error) {
-        console.error('[AuthContext] Admin check error:', error);
-        return false;
+      console.log('[AuthContext] JS client result:', { data: result.data, error: result.error?.message });
+
+      if (result.data && !result.error) {
+        return !!result.data.is_admin;
       }
-      return !!data?.is_admin;
+
+      // Method 3: Check user metadata as last resort
+      console.log('[AuthContext] Trying user metadata...');
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user?.app_metadata?.is_admin || user?.user_metadata?.is_admin) {
+        console.log('[AuthContext] Admin confirmed via metadata');
+        return true;
+      }
+
+      console.log('[AuthContext] All admin check methods failed');
+      return false;
     } catch (err) {
       console.error('[AuthContext] Admin check exception:', err);
       return false;
@@ -44,7 +105,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     isMountedRef.current = true;
 
-    // Step 1: Get initial session
     const initializeAuth = async () => {
       try {
         console.log('[AuthContext] Initializing...');
@@ -56,7 +116,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           console.log('[AuthContext] Found existing session for:', initialSession.user.id.substring(0, 8));
           setSession(initialSession);
 
-          const adminStatus = await checkAdmin(initialSession.user.id);
+          const adminStatus = await checkAdmin(initialSession.user.id, initialSession.access_token);
           if (!isMountedRef.current) return;
 
           lastCheckedUserId.current = initialSession.user.id;
@@ -83,13 +143,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     initializeAuth();
 
-    // Step 2: Listen for auth changes AFTER initial load
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, currentSession) => {
       console.log('[AuthContext] Auth event:', event, '| User:', currentSession?.user?.id?.substring(0, 8) || 'none');
 
       if (!isMountedRef.current) return;
 
-      // Skip INITIAL_SESSION — already handled by getSession above
       if (event === 'INITIAL_SESSION') {
         return;
       }
@@ -104,20 +162,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       const userId = currentSession.user.id;
 
-      // Token refresh for same user — just update session, keep admin status
       if (event === 'TOKEN_REFRESHED' && lastCheckedUserId.current === userId) {
         console.log('[AuthContext] Token refreshed, keeping admin status');
         setSession(currentSession);
         return;
       }
 
-      // SIGNED_IN — need to verify admin
       if (event === 'SIGNED_IN') {
         console.log('[AuthContext] SIGNED_IN, checking admin...');
         setSession(currentSession);
-        setLoading(true); // Show loading spinner while checking
+        setLoading(true);
 
-        const adminStatus = await checkAdmin(userId);
+        const adminStatus = await checkAdmin(userId, currentSession.access_token);
         if (!isMountedRef.current) return;
 
         lastCheckedUserId.current = userId;
@@ -127,7 +183,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return;
       }
 
-      // Other events — just update session
       setSession(currentSession);
     });
 
@@ -141,7 +196,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setLoading(true);
     lastCheckedUserId.current = null;
     await supabase.auth.signOut();
-    // onAuthStateChange SIGNED_OUT will handle the rest
   };
 
   return (
