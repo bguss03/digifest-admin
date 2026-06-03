@@ -141,7 +141,7 @@ const Login = () => {
           </button>
         </form>
         
-        {/* Debug panel - remove after fixing */}
+        {/* Debug panel - remove after fixing
         {debugLog.length > 0 && (
           <div className="p-3 bg-gray-800 rounded-xl text-[10px] font-mono text-green-400 max-h-40 overflow-y-auto space-y-0.5">
             <p className="text-gray-500 mb-1">Debug Log:</p>
@@ -149,18 +149,18 @@ const Login = () => {
               <p key={i}>{log}</p>
             ))}
           </div>
-        )}
+        )} */}
 
         {/* Auth state indicator */}
-        <div className="text-[10px] text-center text-gray-400 space-y-0.5">
+        {/* <div className="text-[10px] text-center text-gray-400 space-y-0.5">
           <p>Auth: {authLoading ? '⏳ loading' : '✅ ready'} | Session: {session ? '✅' : '❌'} | Admin: {isAdmin === null ? '⏳' : isAdmin ? '✅' : '❌'}</p>
-        </div>
+        </div> */}
 
-        <div className="pt-4 border-t border-gray-100 dark:border-gray-800">
+        {/* <div className="pt-4 border-t border-gray-100 dark:border-gray-800">
           <p className="text-center text-[10px] text-gray-400 dark:text-gray-500 font-medium">
             System protected by Supabase Auth & RLS Policy
           </p>
-        </div>
+        </div> */}
       </div>
     </div>
   );
